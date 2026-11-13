@@ -31,8 +31,9 @@ loading/reference extraction are outside timing. It retains each query's forward
 graph and concatenates feature microbatches; microbatch1 does not eliminate all
 retained activations. The default query count4 limits initial memory demand.
 Do not infer full original-recipe speedup from this limited branch comparison.
-Gradient norms do not measure direction usefulness. There are no particle
-correction steps, learned-generator updates, FID, or semantic-quality claims.
+Gradient norms do not measure direction usefulness. The default run has no
+correction steps; the optional extension below probes directions. There are no
+learned-generator updates, FID, or semantic-quality claims.
 
 ## Setup on Beaker
 
@@ -81,3 +82,31 @@ The 80G resource is HOST RAM for checkpoint construction/conversion, not VRAM.
 Use smaller GPUs for the Inception path after measuring its requirements.
 Already queued jobs retain their spooled resource request; pulling a changed
 launcher does not broaden an existing job's GPU eligibility.
+
+## Optional short correction probe
+
+Set `FEATURE_AUDIT_CORRECTION_STEPS=10` and `FEATURE_AUDIT_STEP_RMS=0.01`
+before submission, with a fresh output directory for each encoder. This adds
+ten deterministic descent steps on the same fixed-reference MMD, for every
+case including the unchanged clean control. Bandwidths remain fixed. Each
+particle's gradient is normalized by its own RMS, giving both encoders the
+same per-coordinate latent update budget. This is a diagnostic choice, not a
+tuned sampling algorithm or the original Riesz training surrogate. A zero
+gradient gives no movement. No line search or ground-truth-guided step selection
+is used. The chosen step size may be inappropriate; inspect the whole trace.
+
+`correction_trace.json` records MMD, latent displacement, paired latent MSE,
+and cosine of the descent direction toward the original clean latent at every
+step. Null cosine means the original clean state has already been reached.
+At steps 0, 1, 5 and the final step, decoded PNGs and unclipped decoded RGB MSE
+are saved. Displayed PNGs are clipped to [0,1]. Decoding is outside the timing
+measurement. MAE is released before reloading the decoder for these previews.
+
+The paired clean queries are only used for reporting, never by the descent
+objective. References are different same-class images. Distribution matching
+therefore need not recover a particular original image; exact recovery is an
+auxiliary diagnostic, not a requirement for a valid distributional gradient.
+Clean-control drift can reveal finite-reference overfitting. Reduced pixel MSE
+can also reward smoothing, so inspect the grids. This tiny one-class probe cannot
+rank encoders generally. Replicate across seeds/classes and test actual generator
+updates before making an encoder-quality claim.

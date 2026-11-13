@@ -1,5 +1,6 @@
 import torch
 from compact_features.audit_math import perturb_latents, reference_scales, mmd2
+from compact_features.audit_math import normalized_descent, recovery_metrics
 
 
 def test_shuffling_preserves_values_and_seed():
@@ -21,3 +22,15 @@ def test_mmd_identity_scale_and_input_gradients():
     loss.backward()
     assert torch.isfinite(q['f'].grad).all() and q['f'].grad.norm()>0
     torch.testing.assert_close(loss,mmd2({'f':q['f']*2},{'f':r['f']*2},{'f':s['f']*2}))
+
+
+def test_equal_budget_and_recovery_direction():
+    x=torch.ones(2,1,2,2)
+    clean=torch.zeros_like(x)
+    gradient=x.clone(); gradient[1]*=100
+    updated=normalized_descent(x,gradient,.01)
+    torch.testing.assert_close(updated,torch.full_like(x,.99))
+    assert recovery_metrics(x,clean,gradient)['descent_cosine_to_paired_clean'] > .999
+    assert recovery_metrics(updated,clean,gradient)['paired_latent_mse'] < 1
+    torch.testing.assert_close(normalized_descent(x,torch.zeros_like(x),.01),x)
+    assert recovery_metrics(clean,clean,gradient)['descent_cosine_to_paired_clean'] is None

@@ -25,4 +25,6 @@ exec "$CONDA_PREFIX/bin/python" -u audit_encoders.py \
   --teacher /SAN/intelsys/imagenet_mmd_flow/compact_feature_assets/models/mae/jax/mae_latent_640 \
   --source-repo "$HOME/riesz_flow_sophia" \
   --encoder "${FEATURE_AUDIT_ENCODER:-mae}" --output "$FEATURE_AUDIT_OUTPUT" \
-  --seed "${FEATURE_AUDIT_SEED:-42}" --queries 4 --references 8 --microbatch 1 --repeats 3
+  --seed "${FEATURE_AUDIT_SEED:-42}" --queries 4 --references 8 --microbatch 1 --repeats 3 \
+  --correction-steps "${FEATURE_AUDIT_CORRECTION_STEPS:-0}" \
+  --step-rms "${FEATURE_AUDIT_STEP_RMS:-0.01}"

@@ -39,3 +39,22 @@ def mmd2(features, reference, scales, tau=1.):
         kernel=lambda a,b: torch.exp(-torch.cdist(a,b)/scale)
         terms.append(kernel(x,x).mean()+kernel(y,y).mean()-2*kernel(x,y).mean())
     return torch.stack(terms).mean()
+
+
+def normalized_descent(x, gradient, step_rms):
+    """Same per-particle latent RMS budget across encoders; zero stays zero."""
+    if step_rms <= 0:
+        raise ValueError('step_rms must be positive')
+    rms = gradient.flatten(1).square().mean(1).sqrt()
+    shape = (-1,) + (1,) * (x.ndim - 1)
+    return (x - step_rms * gradient / rms.clamp_min(1e-12).reshape(shape)).detach()
+
+
+def recovery_metrics(x, clean, gradient):
+    """Paired clean image is diagnostic only, never an optimization target."""
+    error = (clean - x).flatten(1)
+    direction = -gradient.flatten(1)
+    valid = error.norm(dim=1) > 1e-10
+    cos = F.cosine_similarity(direction, error, dim=1)
+    return {'paired_latent_mse': float((x-clean).square().mean().detach()),
+            'descent_cosine_to_paired_clean': float(cos[valid].mean().detach()) if valid.any() else None}
