@@ -1,0 +1,274 @@
+COMPACT FEATURES FOR PARTICLE-BASED IMAGE GENERATION
+Experiment design v1 — 2026-11-13
+=================================================
+
+STATUS
+------
+This is a proposed experiment and machine-readable design, not a runnable
+training package. No new training has been launched and no existing repository
+or running experiment has been changed. Actual data/checkpoint paths must be
+resolved when implementing the exporter and training adapter.
+
+QUESTION
+--------
+Can a genuinely smaller latent encoder preserve enough of MAE-640's useful
+sample-comparison geometry and generator-facing gradients to reduce the cost
+of our Riesz/Laplace generator training while retaining generation quality?
+
+This first study uses a fixed MAE teacher. It tests task-specific compression;
+it does NOT test whether MMD alone discovers useful features from scratch.
+A successful student would justify that more ambitious follow-up, not prove it.
+
+WHY THIS PARTICULAR FIRST EXPERIMENT
+----------------------------------
+Our DMMD adaptation could distinguish clean/noisy populations without learning
+a sufficiently useful generation signal. Repeating unrestricted maximum-MMD
+feature training would not resolve that problem. A fixed MAE reference gives
+the small encoder a defined geometry to learn, and held-out gradient checks
+test whether the learned representation is useful for the actual stopped field.
+
+The current ImageNet loss uses scaled VAE latents, not RGB inputs. Keep that
+representation. An RGB feature encoder would add VAE decoding and change both
+the feature objective and the cost being investigated.
+
+MODEL AND CONTROLS
+------------------
+Frozen reference T: the exact mae_latent_640 artifact used in the existing run;
+record metadata, weight checksum and precision. Its encoder is sufficient for
+feature extraction; the unused reconstruction decoder/classifier need not be
+GPU-resident. Removing their residency saves memory, not encoder FLOPs.
+
+One identical student BACKBONE S for every trained arm:
+  input: scaled BHWC 32 x 32 x 4 VAE latent
+  stem: 3x3 convolution, width 64, GroupNorm, SiLU
+  four residual stages: widths [64,128,256,512], two blocks per stage
+  stage resolutions: [32,16,8,4], stride 2 between stages
+  normalization: GroupNorm; no cross-image BatchNorm
+  expose stem + four stage maps, global means and global standard deviations
+  backbone approximately 11M parameters; confirm in implementation
+  F and K add IDENTICAL retained 1x1 channel heads to teacher stage widths;
+  count these heads in parameter, memory and timing reports
+
+Primary trained arms:
+  R — small reconstruction control:
+      S plus a training-only lightweight decoder; reconstruct masked input
+      latents. Mask contiguous latent patches, compute MSE on masked entries.
+      Remove decoder for generator training.
+  F — small ordinary feature-distillation control:
+      S plus retained linear channel adapters to the MAE stage widths;
+      minimize normalized MSE to teacher features at matched spatial positions.
+      KEEP adapters for gradient audits and generator training. Removing them
+      could discard the feature-space geometry that the MSE trained.
+  K — small kernel/affinity-distillation candidate:
+      S plus exactly the same retained channel heads as F learns teacher-derived
+      sample affinities, without reconstructing the sample or copying every
+      teacher feature coordinate. Train affinities through those heads.
+
+All three see the same latent mixture, episode schedule, augmentations and
+number of optimizer updates. F is essential: R versus K alone confounds using
+teacher supervision with specializing the supervision for distribution matching.
+F versus K is the strict same-architecture objective comparison. R retains its
+native smaller feature channels; comparisons with R include this output-space
+difference and must report complete quality/cost rather than claiming a pure
+objective ablation. Pretraining FLOPs differ (decoder/targets); report them.
+After F/K succeeds, removing K's heads can be a separate efficiency ablation;
+do not silently remove F's heads to manufacture an advantage for K.
+
+Use fixed common branches for the controlled experiment: stem and four stage
+maps plus their global means/stds. No intermediate-block-only branches or local
+patch-statistic branches in the FIRST pilot. Teacher and students use the same
+branch definitions and spatial positions; channels may differ.
+
+Retain the original full MAE feature recipe as a separate reference. Before
+claiming replacement of that recipe, compare full-MAE versus common-branch-MAE
+gradients and a matched generator continuation. Removing feature branches must
+not be silently credited to the student objective.
+
+DATA PACKET: BUILD ONCE ON THE CLUSTER, REUSE ON BOTH MACHINES
+------------------------------------------------------------
+Use the existing ImageNet cache, not a new VAE encoding of RGB images.
+Current cache contract:
+  latents are sampled VAE latents already scaled by 0.18215
+  shape [N,32,32,4], BHWC
+  do NOT multiply by 0.18215 again
+  separately encoded flipped images are distinct views of one original ID
+  partition original IDs before adding any flipped view
+
+Proposed first packet:
+  real: up to 160 examples/class, all 1000 classes, sampled with seed 42
+  per-class real partition: 128 train-reference, 16 validation-query, 16 audit-query
+  generated: 16 examples/class/checkpoint, four preselected checkpoints
+  use three checkpoints spanning early/middle/later training for encoder fitting
+  reserve one entire checkpoint for auditing, with independent generator noises
+  CFG values: fixed [1.0,1.19,2.0,4.0], balanced within generated pools
+  do not choose checkpoints/CFG after seeing which student wins
+
+Record source config/checkpoint hashes, class, CFG, noise seed, real image ID,
+view, scaling and partition for every item. Group all occurrences of one noise
+or real-image identity when splitting. No later ImageNet-validation/FID images
+are encoder-training data. No encoder test/audit result is a final generator FID.
+
+At these caps the latent arrays contain about 224,000 states, approximately
+3.67 GB in float32. The actual packet may be smaller if source availability
+requires it; record counts rather than silently repeating examples.
+
+EPISODES AND CACHE
+------------------
+One episode contains one class: 16 generated queries and 32 real references.
+Construct 4096 fixed training episodes, 512 validation episodes and 512 final
+audit episodes. Draw the training mixture from all three training checkpoints;
+audit the reserved checkpoint separately. Validation queries have independent
+identities; frozen training references may be reused as a reference bank.
+
+Precompute teacher targets in small image microbatches. Select up to 8 spatial
+positions per stage map per episode, shared across all samples in that episode.
+Include each branch's global mean/std. Store the selected teacher features for
+F and teacher affinities for K; never cache all dense MAE feature maps blindly.
+Validation/audit also include previously unselected positions.
+
+Estimate feature-cache bytes from the REAL teacher metadata before writing.
+Proposed cache cap: 80 GiB, plus at least 20 GiB disk reserve. Reduce the common
+episode count/position count for all arms together if necessary, and record it.
+This cap is a budget, not a claim about actual storage or runtime.
+
+TASK-SPECIFIC FEATURE OBJECTIVE (ARM K)
+-------------------------------------
+For branch l, sampled position p, and episode query x_i and reference r_j:
+  d_E(i,j) = || E_l(x_i)[p] - E_l(r_j)[p] ||_2
+  dbar_E = d_E / s_E
+  A_E^+(i,j;tau) = softmax_j(-dbar_E(i,j)/tau)
+
+Also construct A_E^- over the OTHER generated queries; exclude self-pairs.
+s_E is the same predeclared characteristic-distance estimator for teacher and
+student, calculated independently in each episode. In student encoder fitting,
+differentiate through its distance normalization; during the eventual generator
+loss preserve the existing detached-scale conventions exactly.
+
+Frozen pilot temperatures: [0.2,0.05,0.02], shared across arms and selected before
+audit. This is a starting setting, not claimed optimal. Log effective neighbors.
+
+L_K = mean over episodes, branches, positions and temperatures of
+      KL(stopgrad(A_T^+) || A_S^+)
+      + KL(stopgrad(A_T^-) || A_S^-)
+      + 0.1 * mean SmoothL1(dbar_S, stopgrad(dbar_T)).
+
+Compute distances, log-softmax and reductions in fp32. Loss components are
+averaged (not summed with an architecture-dependent branch count). Reject
+nonfinite/degenerate distances; monitor feature variance and collapse.
+
+This teaches which references should influence each query, and which generated
+samples should interact. It is a proposed distillation objective, not standard
+MMD maximization, not ordinary regression of image pixels, and not a proven
+equivalence to our normalized Riesz/Laplace field.
+
+TRAINING BUDGET
+---------------
+First screen: R/F/K, seed 42, 5000 optimizer updates each.
+AdamW, LR 3e-4, weight decay 1e-4, 250-step warmup then cosine decay, clip norm 1.
+Initial mask setting for R: 50% masked 4x4 latent patches. Tune only on validation.
+Generic F uses per-branch training-derived teacher scales; no validation fitting.
+
+Global batch = 4 independent episodes. Each arm sees the same global schedule.
+  Scafell: 1 GPU, microbatch 1 episode, accumulation 4
+  UCL:     4 H100s on one node, 1 episode/rank, accumulation 1
+Normalize losses per episode so episode-level scales do not change with GPU
+count. Record the world size and precision; do not promise bitwise equivalence.
+
+Run one 10-update smoke test and a 50-update throughput/memory check before the
+5000-update run. Set the real wall-clock budget from this measurement, not from
+an untested estimate. If teacher extraction is too large on the 4090, produce
+targets on the cluster and train only students on Scafell.
+
+FIRST GATE: HELD-OUT GEOMETRY AND ACTUAL LATENT UPDATE DIRECTIONS
+-------------------------------------------------------------
+Do not spend full ImageNet generator training on every encoder.
+Report per branch and overall:
+  held-out affinity KL, normalized-distance error, neighbor overlap
+  effective neighbors and feature variance
+  sensitivity to spatial shuffling, low-pass filtering and variance-matched noise
+  results on unseen queries, positions, generator checkpoint and CFG values
+
+For frozen T or S compute g_E = d L_particle(E; generated, real) / d generated,
+using the EXACT current stopped Riesz/Laplace surrogate, scale detach rules,
+same-class reference conventions and CFG weights. Compare gradients in the
+COMMON LATENT COORDINATES, not vectors from incompatible feature channels.
+Use independent audit episodes; also stress the actual 64-generated/128-real
+population setting on the cluster using the source cache.
+
+Report cosine agreement, gradient norm ratio and teacher-loss response to a
+student-directed small latent update at several predeclared step sizes.
+Evaluate paired finite differences of the teacher's own affinity statistic too;
+the stopped surrogate scalar is not a globally conservative objective. Recompute
+the teacher field before/after and record the exact diagnostic definition.
+
+Gradient agreement is initially a diagnostic/gate, not a training loss: training
+through input gradients would require second-order derivatives. Similar
+affinities alone do not establish similar generator updates.
+
+Provisional screen (engineering choices, not theoretical guarantees):
+  median cosine >=0.7 relative to common-branch teacher
+  median norm ratio between 0.5 and 2 after ONE validation-fitted global scaling
+  no systematic reversal on a source checkpoint/CFG group
+  >=2x reduction in measured encoder forward + input-backward time
+If none pass, stop and diagnose rather than launching all generator runs.
+If only geometry fits but gradients fail, that identifies a concrete limitation
+of affinity distillation; it is not evidence that compact features cannot work.
+
+SECOND GATE: SMALL MATCHED GENERATOR CONTINUATIONS
+-----------------------------------------------
+Copy ONE existing reasonably trained generator checkpoint into separate run
+directories. Continue for 2000 updates using the common-branch teacher, F, K
+and R only if they pass the first gate. Preserve the source checkpoint.
+Keep generator weights at start, particles, optimizer/LR, data order, CFG
+training distribution, feature branch weights, EMA and hardware partition fixed.
+New feature caches/banks must be rebuilt; never reuse MAE-valued banks for S.
+
+Use 5k generated images per arm with identical evaluation seeds as screening,
+plus independent representation/diversity checks where available. Repeat any
+promising comparison on seeds 43/44 before a 50k-sample final FID comparison.
+Measure full training-step time, not only feature extraction. Do not tune each
+student's temperatures against final FID. Allow the same declared validation
+budget if objective/LR tuning is needed.
+
+A successful continuation demonstrates replacement viability near that starting
+generator. A later from-scratch run is necessary to establish native one-step
+training with the cheap encoder. Report both questions separately.
+
+TOTAL COST AND INTERPRETATION
+-----------------------------
+Report teacher-target production, student pretraining, adapter/decoder overhead,
+generator training, peak memory and data/cache bytes separately.
+Amortized saving after U generator updates =
+  U * (old_step_seconds - new_step_seconds) - all_upfront_feature_pipeline_seconds.
+The upfront term includes teacher cache production AND student pretraining.
+This only compares matched hardware measurements; shared-GPU measurements are
+descriptive. The current Scafell machine has hosted another user's GPU process,
+so obtain isolated timings before claiming a speedup.
+
+R beating historical MAE numbers is not required for an informative pilot.
+K beating F at comparable encoder cost would support task-specific supervision.
+K matching F would support compression but not a special MMD benefit.
+Small encoders maintaining quality with lower measured total cost would support
+the practical project goal even if task specialization adds little.
+
+RELEVANT SOURCES AND LIMITS
+--------------------------
+Drift-RAE (2026): https://arxiv.org/html/2606.15553v2
+  Auxiliary-MAE-free distillation; Appendix C documents remaining from-scratch
+  difficulties. Does not validate the student objective proposed here.
+Teacher-Feature Drifting (2026): https://arxiv.org/html/2605.07327v2
+  Demonstrates reusing teacher representations; teacher execution still costs.
+Representation Distribution Matching (2026): https://arxiv.org/html/2607.02375v1
+  Reports feature-space gaming; motivates independent evaluation.
+Song Mei: https://arxiv.org/abs/2404.18444
+  Hierarchical-denoising theory under specified generative models; not a proof
+  that a U-Net or MMD maximization supplies suitable compact image features.
+
+WHAT IS NEEDED TO TURN THIS DESIGN INTO A REAL LAUNCH
+--------------------------------------------------
+1. Existing ImageNet latent-cache directory and mae_latent_640 artifact directory.
+2. Four selected generator checkpoints and their source config/CFG implementation.
+3. A separate output directory on each machine; no changes to Hudson's folder.
+4. An exporter, encoder-only teacher adapter, student trainer, stopped-field
+   gradient audit and integration adapter. These are not implemented by this
+   design document or the accompanying YAML.

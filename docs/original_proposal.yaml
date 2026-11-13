@@ -1,0 +1,126 @@
+status: design_only_not_a_training_config
+experiment: compact_latent_particle_features_v1
+date: '2026-11-13'
+input:
+  representation: existing_scaled_vae_latents
+  shape_bhwc: [32, 32, 4]
+  already_scaled_by: 0.18215
+  apply_additional_scaling: false
+  class_count: 1000
+  real_per_class: {train_reference: 128, validation_query: 16, audit_query: 16}
+  generated_per_class_per_checkpoint: 16
+  fitting_checkpoints: 3
+  held_out_checkpoints: 1
+  cfg_values: [1.0, 1.19, 2.0, 4.0]
+  split_by: [original_real_image_id, generator_noise_identity]
+  never_fit_on: [imagenet_validation_images, encoder_audit_queries, held_out_generator_checkpoint]
+teacher:
+  artifact: mae_latent_640
+  frozen: true
+  encoder_only_gpu_residency: true
+  artifact_path: null
+  original_full_feature_recipe_is_separate_reference: true
+student:
+  architecture: multiscale_residual_cnn
+  matching: identical_backbone_all_arms_identical_full_feature_path_for_F_and_K
+  stem_width: 64
+  stage_widths: [64, 128, 256, 512]
+  blocks_per_stage: [2, 2, 2, 2]
+  normalization: group_norm
+  activation: silu
+  common_features: [conv1, layer1, layer2, layer3, layer4]
+  global_mean: true
+  global_std: true
+  intermediate_block_features: false
+  local_patch_statistics: false
+arms:
+  reconstruction:
+    training_only_head: small_decoder
+    mask_ratio: 0.5
+    mask_patch_size: 4
+    loss: masked_latent_mse
+  generic_teacher_distillation:
+    retained_feature_head: per_stage_1x1_channel_adapters_to_teacher_width
+    discard_adapters_after_training: false
+    loss: normalized_teacher_feature_mse
+  particle_geometry_distillation:
+    retained_feature_head: per_stage_1x1_channel_adapters_to_teacher_width
+    full_architecture_identical_to_generic_teacher_distillation: true
+    loss: teacher_affinity_kl_plus_normalized_distance_smooth_l1
+    comparison_types: [generated_to_real, generated_to_other_generated]
+    temperatures: [0.2, 0.05, 0.02]
+    affinity_kl_weight: 1.0
+    distance_weight: 0.1
+    exclude_generated_self_pairs: true
+    fit_through_student_distance_scale: true
+    loss_precision: float32
+episodes:
+  classes_per_episode: 1
+  generated_queries: 16
+  real_references: 32
+  train_count: 4096
+  validation_count: 512
+  audit_count: 512
+  spatial_positions_per_stage: 8
+  positions_shared_across_samples_within_episode: true
+  audit_unseen_positions: true
+  cache_cap_gib: 80
+  disk_reserve_gib: 20
+  estimate_cache_from_actual_teacher_metadata_first: true
+training:
+  initial_seed: 42
+  smoke_updates: 10
+  throughput_check_updates: 50
+  pilot_updates_per_arm: 5000
+  global_episodes_per_update: 4
+  optimizer: adamw
+  learning_rate: 0.0003
+  weight_decay: 0.0001
+  warmup_updates: 250
+  schedule: cosine
+  max_gradient_norm: 1.0
+  schedule_and_data_matched_across_arms: true
+hardware:
+  scafell:
+    gpus: 1
+    expected_gpu: rtx_4090_24gb
+    microbatch_episodes_per_rank: 1
+    gradient_accumulation: 4
+    can_use_cluster_produced_teacher_cache: true
+  ucl_sge:
+    gpus: 4
+    nodes: 1
+    expected_gpu: h100
+    microbatch_episodes_per_rank: 1
+    gradient_accumulation: 1
+    output_directory: null
+first_gate:
+  compare_exact_stopped_particle_loss_input_gradients: true
+  gradient_coordinates: original_scaled_vae_latents
+  optimize_through_input_gradients_during_pretraining: false
+  minimum_median_gradient_cosine: 0.7
+  median_norm_ratio_range: [0.5, 2.0]
+  norm_calibration: one_global_scalar_fitted_on_validation_only
+  minimum_encoder_forward_and_input_backward_speedup: 2.0
+  thresholds_are_provisional_engineering_choices: true
+  cluster_population_stress_check: {generated: 64, real: 128}
+second_gate:
+  experiment_type: matched_generator_continuations
+  copied_source_checkpoint: null
+  updates: 2000
+  preserve_particles_and_generator_recipe: true
+  rebuild_feature_banks_for_each_encoder: true
+  screening_fid_samples: 5000
+  confirmation_seeds: [42, 43, 44]
+  final_fid_samples: 50000
+  from_scratch_claim_requires_later_from_scratch_run: true
+cost_reporting:
+  include: [teacher_cache_production, student_pretraining, generator_training, input_backward, peak_memory, cache_bytes]
+  do_not_infer_speedup_from_parameter_count: true
+  isolated_hardware_required_for_speedup_claim: true
+unresolved_paths:
+  imagenet_cache: null
+  teacher_artifact: null
+  generator_checkpoints: null
+  output_root_on_scafell: null
+  output_root_on_cluster: null

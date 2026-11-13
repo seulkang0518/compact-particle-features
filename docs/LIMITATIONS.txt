@@ -1,0 +1,45 @@
+LIMITS OF THIS FIRST-STAGE PILOT
+==============================
+
+This project tests compact feature encoders on cached particle episodes. It does
+not integrate them into full drifting/Riesz generator training and does not
+establish ImageNet generation quality, FID parity, or an end-to-end speedup.
+
+A synthetic cache verifies software wiring and numerical behavior only. It is
+not evidence about semantic image features or scientific success. Real runs
+require the user's compatible local MAE checkpoint/source checkout and real
+generated particle snapshots. No pretrained teacher is bundled or downloaded.
+
+Teacher features are computed up front and stored. That cache has construction,
+storage and data-read costs, and covers only its recorded particles, snapshots,
+CFG settings, classes and noise identities. Removing online teacher calls in
+this pilot does not make teacher pretraining/cache construction free. Generality
+to future generator distributions is unproven. Held-out real/noise IDs and a
+held-out generator checkpoint are required to probe that limitation.
+
+Feature matching and kernel-geometry matching retain the same adapter heads and
+teacher-channel output widths. The reconstruction control uses its native encoder
+channels. Channel widths may therefore differ for diagnostics, which compare
+normalized within-encoder geometry rather than direct coordinate differences.
+For fair cost comparisons, count retained adapters and the actual feature branch
+operations used at deployment, together with backward-to-input cost.
+
+The real cache adapter exposes five common teacher maps: conv1 and layer1-4.
+This is not the original full MAE loss feature collection: intermediate residual
+block activations and local-patch statistics are not all reproduced. A positive
+result here must be followed by a matched comparison against the complete
+original training recipe.
+
+Nearest-neighbor overlap and normalized pairwise geometry can look good without
+preserving the encoder Jacobian. They do not prove useful pixel/latent gradients,
+conservative drift, faithful generator updates, or semantic quality. Numerical
+collapse checks identify degeneracy, not whether a representation captures the
+right image distinctions. Stable index tie-breaking can inflate overlap when
+features collapse; always inspect spread/collapse diagnostics alongside overlap.
+
+Effective-neighbor counts here use exp(Shannon entropy) of normalized-distance
+Laplace-style affinities. They describe selectivity at each temperature, not the
+entire normalized Riesz field or its backward pass. The within-group variance
+fraction depends on the feature origin and is a shortcut diagnostic, not a
+translation-invariant quality metric. All model selection must use validation
+episodes; audit episodes are held out from tuning.

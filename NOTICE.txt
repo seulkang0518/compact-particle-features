@@ -1,0 +1,5 @@
+This repository contains a proposed research pilot, not an official release of
+Drifting, DMMD, or MAE. The optional real-teacher adapter imports a separately
+provided riesz_flow_sophia checkout and its existing MAE artifact. That source,
+weights, and any underlying upstream code retain their own licenses and terms.
+No pretrained weights or ImageNet data are redistributed here.

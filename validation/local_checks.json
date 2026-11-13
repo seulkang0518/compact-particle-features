@@ -1,0 +1,15 @@
+{
+  "date": "2026-11-13",
+  "python": "3.11.9",
+  "torch": "2.12.0",
+  "device": "CPU",
+  "unit_tests": 23,
+  "unit_tests_passed": true,
+  "synthetic_three_arm_smoke": "passed; 3 updates each + validation geometry",
+  "resume_reconstruction_model_and_optimizer": "bitwise identical after stop/resume versus uninterrupted, fixed horizon3",
+  "student_input_backward_benchmark": "passed, CPU proxy only",
+  "real_mae640_artifact": "not available locally; not tested",
+  "cuda_4090": "not tested locally",
+  "four_h100_nccl": "launcher included, not tested locally",
+  "full_generator_integration": "not implemented"
+}
