@@ -100,6 +100,10 @@ and `ema_params.pt` or `ema_params.msgpack` in the format already supported by
 that checkout. A plain trainer `state_*.pt` is not a MAE artifact. An HF cache
 root containing `models/mae/jax/mae_latent_640` can also be supplied.
 
+Original JAX trees are converted using that checkout's MAE conversion helper
+before strict PyTorch loading. Flat PyTorch state dictionaries use the direct
+loading path. The bundled routing tests use lightweight fixtures, not MAE-640.
+
 ```bash
 python cache_teacher.py \
   --packet data/imagenet_packet \

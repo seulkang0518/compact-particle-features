@@ -59,11 +59,20 @@ class MAETeacher(nn.Module):
             raise FileNotFoundError('Source checkout must contain models/mae_model.py')
         os.environ['DRIFT_COMPILE'] = '0'
         sys.path.insert(0, str(repo))
-        from models.mae_model import build_feature_model_and_params
-        model, state = build_feature_model_and_params(path=str(artifact))
+        from models.mae_model import _mae_from_metadata
+        from models.hf import load_jax_ema_params, _load_torch_or_convert
+        from utils.param_convert import convert_mae_tree_to_state_dict
+        # Local artifacts can be the original nested JAX/msgpack tree, whereas
+        # torch.load_state_dict needs flat PyTorch names and convolution layouts.
+        # Reuse the source release's HF conversion path without downloading or
+        # moving the reconstruction decoder onto the GPU.
+        model = _mae_from_metadata(metadata)
+        raw_params = load_jax_ema_params(artifact)
+        state = _load_torch_or_convert(model, raw_params, convert_mae_tree_to_state_dict)
+        model.load_state_dict(state, strict=True)
         self.encoder = model.encoder
         # The reconstruction decoder and classifier are not moved to CUDA.
-        del state, model
+        del raw_params, state, model
         gc.collect()
         self.requires_grad_(False)
         self.eval()
