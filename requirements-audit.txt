@@ -1,0 +1,10 @@
+-r requirements.txt
+torchvision>=0.20,<1
+diffusers>=0.30
+transformers>=4.40
+accelerate>=0.30
+safetensors>=0.4
+huggingface_hub>=0.25
+einops>=0.8
+Pillow>=10
+flax>=0.8

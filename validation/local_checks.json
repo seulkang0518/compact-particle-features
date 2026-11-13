@@ -3,7 +3,7 @@
   "python": "3.11.9",
   "torch": "2.12.0",
   "device": "CPU",
-  "unit_tests": 25,
+  "unit_tests": 27,
   "unit_tests_passed": true,
   "synthetic_three_arm_smoke": "passed; 3 updates each + validation geometry",
   "resume_reconstruction_model_and_optimizer": "previous revision: bitwise identical after stop/resume; new code fingerprint intentionally prevents resuming old-code runs",
@@ -12,5 +12,6 @@
   "cuda_4090": "not tested locally",
   "four_h100_nccl": "launcher included, not tested locally",
   "full_generator_integration": "not implemented",
-  "local_mae_adapter_routing": "passed for mocked nested-JAX and flat-PyTorch input; full real weights not tested locally"
+  "local_mae_adapter_routing": "passed for mocked nested-JAX and flat-PyTorch input; full real weights not tested locally",
+  "frozen_encoder_audit": "helper tests passed; CLI compiles; real GPU paths not yet executed"
 }

@@ -139,3 +139,10 @@ See [validation results](validation/local_checks.json),
 The original proposal includes later gates that are not part of this release.
 The real MAE-640 artifact and H100/4090 hardware were unavailable for local
 verification; the synthetic checks do not establish representation usefulness.
+
+## Small frozen-encoder audit
+
+Before student training, [FROZEN_AUDIT.md](docs/FROZEN_AUDIT.md) describes a small
+MAE/Inception comparison using independent real references and saved grids of
+controlled latent perturbations. It includes an allocated one-H100 launcher.
+This diagnostic measures response and input-backward cost, not generation quality.
