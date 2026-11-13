@@ -77,7 +77,7 @@ def main():
     if args.encoder=='mae':
         del vae; gc.collect(); torch.cuda.empty_cache()
         from compact_features.teacher import MAETeacher
-        encoder=MAETeacher(args.source_repo,args.teacher).cuda().eval()
+        encoder=MAETeacher(args.source_repo,args.teacher,force_fp32=True).cuda().eval()
         def features(x):
             return {k:v.float().mean((2,3)) for k,v in encoder(x).items()}
         provenance=encoder.provenance

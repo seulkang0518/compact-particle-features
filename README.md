@@ -144,5 +144,5 @@ verification; the synthetic checks do not establish representation usefulness.
 
 Before student training, [FROZEN_AUDIT.md](docs/FROZEN_AUDIT.md) describes a small
 MAE/Inception comparison using independent real references and saved grids of
-controlled latent perturbations. It includes an allocated one-H100 launcher.
+controlled latent perturbations. It includes an allocated one-GPU launcher accepting H100/A100/V100.
 This diagnostic measures response and input-backward cost, not generation quality.

@@ -49,7 +49,7 @@ Download the Inception weights on the login node, before the GPU job:
 
 The MAE artifact and VAE folder must be present at the paths in the launcher.
 MAE loading has a substantial host-RAM peak; use an allocated job, not the login
-node. The launcher requests 80G host memory and one H100 using the same queue
+node. The launcher requests 80G host memory and one H100/A100/V100 using the same queue
 conventions as the user's existing cluster scripts. Activate feature-audit and
 run qsub from this repository so -cwd/-V preserve the source/env.
 
@@ -70,3 +70,14 @@ A fair repeated study should additionally pin/record torchvision/VAE weight
 hashes and software versions, audit more classes/seeds, vary kernel bandwidths,
 and test predictions in actual generator training. No real GPU audit was run in
 the development environment; helper tests only verify the diagnostic algebra.
+
+The updated launcher accepts h100, a100, or v100 using Grid Engine's quoted OR
+expression. Both encoder paths use FP32 in this audit; the MAE metadata precision
+setting is overridden for this diagnostic and logged. This avoids relying on
+native BF16 support on older GPUs. No real run has yet established memory fit on
+each GPU type. Keep comparisons on the same GPU model when reporting relative
+timings; do not compare an Inception timing on V100 with an MAE timing on H100.
+The 80G resource is HOST RAM for checkpoint construction/conversion, not VRAM.
+Use smaller GPUs for the Inception path after measuring its requirements.
+Already queued jobs retain their spooled resource request; pulling a changed
+launcher does not broaden an existing job's GPU eligibility.

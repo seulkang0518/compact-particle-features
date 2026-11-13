@@ -3,7 +3,7 @@
 #$ -P aihub_ucl
 #$ -cwd
 #$ -V
-#$ -l gpu=true,gpu_type=h100
+#$ -l gpu=true,gpu_type="h100|a100|v100"
 #$ -pe gpu 1
 #$ -l tmem=80G
 #$ -l h_rt=02:00:00
@@ -16,7 +16,10 @@ export DRIFT_COMPILE=0
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 export OMP_NUM_THREADS=4
-exec python -u audit_encoders.py \
+: "${CONDA_PREFIX:?Activate the feature-audit environment before qsub}"
+echo "Node: ${HOSTNAME:-unknown}; encoder: ${FEATURE_AUDIT_ENCODER:-mae}; Python: $CONDA_PREFIX/bin/python"
+nvidia-smi --query-gpu=name,memory.total --format=csv
+exec "$CONDA_PREFIX/bin/python" -u audit_encoders.py \
   --image-root /SAN/intelsys/imagenet_mmd_flow/ILSVRC/Data/CLS-LOC/train \
   --vae /SAN/intelsys/imagenet_mmd_flow/compact_feature_assets/sdvae_hf_root \
   --teacher /SAN/intelsys/imagenet_mmd_flow/compact_feature_assets/models/mae/jax/mae_latent_640 \

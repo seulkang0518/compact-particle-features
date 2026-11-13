@@ -41,7 +41,7 @@ class SyntheticTeacher(nn.Module):
 
 
 class MAETeacher(nn.Module):
-    def __init__(self, source_repo, teacher_root, teacher_name='mae_latent_640'):
+    def __init__(self, source_repo, teacher_root, teacher_name='mae_latent_640', force_fp32=False):
         super().__init__()
         repo, root = Path(source_repo).resolve(), Path(teacher_root).resolve()
         candidates = [root, root/'models'/'mae'/'jax'/teacher_name, root/teacher_name]
@@ -66,7 +66,10 @@ class MAETeacher(nn.Module):
         # torch.load_state_dict needs flat PyTorch names and convolution layouts.
         # Reuse the source release's HF conversion path without downloading or
         # moving the reconstruction decoder onto the GPU.
-        model = _mae_from_metadata(metadata)
+        build_metadata = metadata
+        if force_fp32:
+            build_metadata = {**metadata, 'model_config': {**model_config, 'use_bf16': False}}
+        model = _mae_from_metadata(build_metadata)
         raw_params = load_jax_ema_params(artifact)
         state = _load_torch_or_convert(model, raw_params, convert_mae_tree_to_state_dict)
         model.load_state_dict(state, strict=True)
@@ -86,6 +89,7 @@ class MAETeacher(nn.Module):
         files = [artifact/'metadata.json'] + [p for name in ('ema_params.pt', 'ema_params.msgpack')
                                                   if (p := artifact/name).is_file()]
         self.provenance = {'type': 'frozen_latent_mae_encoder', 'teacher_name': teacher_name,
+            'force_fp32': bool(force_fp32), 'compute_dtype': str(next(self.encoder.parameters()).dtype),
             'source_revision': revision, 'source_dirty_files': dirty,
             'source_files_sha256': {str(p.relative_to(repo)): file_hash(p) for p in
                 [repo/'models'/'mae_model.py', repo/'models'/'hf.py', repo/'utils'/'param_convert.py']},
