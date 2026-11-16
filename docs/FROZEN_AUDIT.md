@@ -102,11 +102,42 @@ At steps 0, 1, 5 and the final step, decoded PNGs and unclipped decoded RGB MSE
 are saved. Displayed PNGs are clipped to [0,1]. Decoding is outside the timing
 measurement. MAE is released before reloading the decoder for these previews.
 
-The paired clean queries are only used for reporting, never by the descent
-objective. References are different same-class images. Distribution matching
+In the default MMD mode the paired clean queries are only used for reporting,
+never by the descent objective. References are different same-class images. Distribution matching
 therefore need not recover a particular original image; exact recovery is an
 auxiliary diagnostic, not a requirement for a valid distributional gradient.
 Clean-control drift can reveal finite-reference overfitting. Reduced pixel MSE
 can also reward smoothing, so inspect the grids. This tiny one-class probe cannot
 rank encoders generally. Replicate across seeds/classes and test actual generator
 updates before making an encoder-quality claim.
+
+## Paired clean-target sanity control
+
+Set `FEATURE_AUDIT_CORRECTION_OBJECTIVE=paired_feature` to use each query's own
+clean features as its frozen target. Unlike MMD mode, this is explicitly paired
+feature regression: for each branch, sum squared feature-coordinate errors,
+divide by the fixed independent-reference median distance squared, then average
+samples and branches. The unchanged MMD against independent references is still
+reported as a diagnostic; it is not the optimized objective in this mode.
+
+The same images, perturbations, ten steps, and per-particle latent RMS budget
+are used. A paired error <=1e-10 suppresses that particle's update to avoid
+amplifying roundoff at its clean optimum. This threshold is recorded. Targets
+receive no gradients. No pixel/latent reconstruction loss is optimized.
+
+Inspect `objective_value`, paired latent and decoded RGB errors, directional
+cosines, and saved grids. Clean controls should stay still. Feature regression
+can still change texture without recovering the original: globally pooled
+features are many-to-one, and fixed-size steps may overshoot. A negative result
+after ten steps is not proof that the encoder lacks useful gradients. A positive
+result is not evidence that it trains a generator well. This is only an inversion
+sanity control, separate from the population-matching experiment.
+
+On Beaker, after activating the SAN feature-audit environment and pulling:
+
+    bash scripts/submit_paired_control.sh
+
+This submits one job for each encoder and prints job IDs/log paths. Existing
+audit outputs are not changed. The actual GPU path must be checked on cluster;
+local tests verify the paired loss, gradients, target detachment, and clean
+zero-update control only.

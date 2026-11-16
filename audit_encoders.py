@@ -14,7 +14,8 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-from compact_features.audit_math import perturb_latents, reference_scales, mmd2, normalized_descent, recovery_metrics
+from compact_features.audit_math import (perturb_latents, reference_scales, mmd2,
+                                        normalized_descent, recovery_metrics, paired_feature_errors)
 from compact_features.runtime import write_json, digest, source_digest
 
 
@@ -33,6 +34,8 @@ def main():
     p.add_argument('--microbatch', type=int, default=1)
     p.add_argument('--repeats', type=int, default=3)
     p.add_argument('--correction-steps', type=int, default=0)
+    p.add_argument('--correction-objective', choices=['mmd','paired_feature'], default='mmd',
+                   help='Paired feature regression is a separate inversion sanity control, not MMD')
     p.add_argument('--step-rms', type=float, default=.01,
                    help='Per-image latent RMS update size; fixed across encoders')
     args=p.parse_args()
@@ -106,6 +109,7 @@ def main():
     with torch.no_grad():
         ref=batch_features(reference)
         scales=reference_scales(ref)
+        targets=batch_features(clean) if args.correction_steps and args.correction_objective=='paired_feature' else None
     rows=[]
     correction_rows=[]
     snapshots={}
@@ -128,9 +132,18 @@ def main():
             q=x.detach()
             for step in range(args.correction_steps+1):
                 q=q.detach().requires_grad_(True)
-                loss=mmd2(batch_features(q),ref,scales)
+                q_features=batch_features(q)
+                discrepancy=mmd2(q_features,ref,scales)
+                errors=paired_feature_errors(q_features,targets,scales) if targets is not None else None
+                loss=errors.mean() if errors is not None else discrepancy
                 grad,=torch.autograd.grad(loss,q)
-                item={'case':name,'step':step,'mmd2':float(loss.detach()),
+                # Do not amplify roundoff-sized paired residuals into a full
+                # fixed-RMS update at an already matched clean target.
+                if errors is not None:
+                    active=errors.detach()>1e-10
+                    grad=grad*active.reshape((-1,)+(1,)*(q.ndim-1))
+                item={'case':name,'step':step,'mmd2':float(discrepancy.detach()),
+                      'correction_objective':args.correction_objective,'objective_value':float(loss.detach()),
                       'displacement_rms':float((q.detach()-x).square().mean().sqrt()),
                       **recovery_metrics(q,clean,grad)}
                 correction_rows.append(item)
@@ -140,7 +153,7 @@ def main():
                 if step < args.correction_steps:
                     q=normalized_descent(q,grad,args.step_rms)
             write_json(out/'correction_trace.json',correction_rows)
-            del q,grad,loss
+            del q,grad,loss,discrepancy,q_features,errors
     baseline=rows[0]['mmd2']
     for row in rows: row['mmd2_minus_clean_control']=row['mmd2']-baseline
     if snapshots:
@@ -167,8 +180,10 @@ def main():
         'device':torch.cuda.get_device_name(),
         'code_sha256':source_digest(),
         'correction_steps':args.correction_steps,'step_rms':args.step_rms,
+        'correction_objective':args.correction_objective,
+        'paired_feature_stop_tolerance':1e-10 if targets is not None else None,
         'correction_results':correction_rows,
-        'scope':'Exploratory frozen-encoder diagnostic. Optional normalized MMD descent uses independent real references; paired clean states are metrics only. Pixel/latent recovery is not semantic quality, and distribution matching need not recover each original image. MAE uses global-mean branches, not the full original recipe. No FID or generator-quality claim.'})
+        'scope':'Exploratory frozen-encoder diagnostic. MMD descent uses independent real references; paired_feature instead uses each query own clean features as its stopped regression target. Fixed-budget feature inversion need not reconstruct the original image. Pixel/latent recovery is not semantic quality; population matching need not recover each original. MAE uses global-mean branches, not full original recipe. No FID or generator-quality claim.'})
 
 
 if __name__=='__main__': main()

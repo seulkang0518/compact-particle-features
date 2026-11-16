@@ -41,6 +41,22 @@ def mmd2(features, reference, scales, tau=1.):
     return torch.stack(terms).mean()
 
 
+def paired_feature_errors(features, clean_features, scales):
+    """One normalized squared feature distance per paired sample.
+
+    Sum feature coordinates; average branches. Targets/scales are frozen. This
+    is paired feature regression, not a population MMD objective.
+    """
+    terms=[]
+    for key,x in features.items():
+        target=clean_features[key].detach().float()
+        if x.shape != target.shape:
+            raise ValueError('Paired query/target feature shapes must match')
+        delta=(x.float()-target).flatten(1)
+        terms.append(delta.square().sum(1)/scales[key].detach().square())
+    return torch.stack(terms).mean(0)
+
+
 def normalized_descent(x, gradient, step_rms):
     """Same per-particle latent RMS budget across encoders; zero stays zero."""
     if step_rms <= 0:
@@ -51,7 +67,7 @@ def normalized_descent(x, gradient, step_rms):
 
 
 def recovery_metrics(x, clean, gradient):
-    """Paired clean image is diagnostic only, never an optimization target."""
+    """Recovery diagnostic; clean may or may not be used by the objective."""
     error = (clean - x).flatten(1)
     direction = -gradient.flatten(1)
     valid = error.norm(dim=1) > 1e-10

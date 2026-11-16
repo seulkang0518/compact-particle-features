@@ -27,4 +27,5 @@ exec "$CONDA_PREFIX/bin/python" -u audit_encoders.py \
   --encoder "${FEATURE_AUDIT_ENCODER:-mae}" --output "$FEATURE_AUDIT_OUTPUT" \
   --seed "${FEATURE_AUDIT_SEED:-42}" --queries 4 --references 8 --microbatch 1 --repeats 3 \
   --correction-steps "${FEATURE_AUDIT_CORRECTION_STEPS:-0}" \
+  --correction-objective "${FEATURE_AUDIT_CORRECTION_OBJECTIVE:-mmd}" \
   --step-rms "${FEATURE_AUDIT_STEP_RMS:-0.01}"
